@@ -66,11 +66,6 @@ import matplotlib.lines as mlines
 log = logging.getLogger(__name__)
 
 _LIGHT_SPEED = 299792458.0   # m s-1
-
-# uv-coverage plotting budget: frequency samples kept inside each SPW,
-# and the maximum number of markers drawn per MS.
-_CHUNKS_PER_SPW  = 8
-_MAX_PLOT_POINTS = 2_000_000
 _NAN_C64     = np.complex64(complex(float('nan'), 0.0))
 
 # ---------------------------------------------------------------------------
@@ -198,44 +193,6 @@ def _spw_meta(vis, tb_tool, msmd_tool):
         }
     msmd_tool.done()
     return dd_info
-
-
-def _chunk_chan_freqs(freqs, chan_chunk=16):
-    """
-    Average *freqs* in groups of *chan_chunk* channels and return the
-    representative frequency of each group.
-
-    Safe for non-homogeneous spectral windows: an SPW with fewer channels
-    than *chan_chunk* collapses to a single group, and a trailing partial
-    group is averaged over the channels it actually has instead of being
-    dropped.  The naive ``freqs[:n * cs].reshape(n, cs)`` raises
-    ``ValueError: cannot reshape array of size 11 into shape (1,16)`` for
-    such SPWs.
-
-    Parameters
-    ----------
-    freqs      : array_like [Hz]  channel frequencies of one SPW
-    chan_chunk : int              channels averaged per group
-
-    Returns
-    -------
-    ndarray [Hz], length ``max(1, ceil(n_chan / chan_chunk))``
-    (empty if *freqs* is empty).
-    """
-    freqs  = np.asarray(freqs, dtype=np.float64).ravel()
-    n_freq = freqs.size
-    if n_freq == 0:
-        return np.empty(0, dtype=np.float64)
-
-    cs     = max(1, int(chan_chunk))
-    n_full = n_freq // cs
-    if n_full == 0:                      # narrower than a single chunk
-        return np.array([freqs.mean()], dtype=np.float64)
-
-    out = freqs[:n_full * cs].reshape(n_full, cs).mean(axis=1)
-    if n_freq > n_full * cs:             # trailing partial chunk
-        out = np.concatenate([out, [freqs[n_full * cs:].mean()]])
-    return out
 
 
 def _ant_names(vis, tb_tool):
@@ -1369,16 +1326,13 @@ def plot_visibilities(self, g_vis, name,
 # Section 10 – plot_uvwave()   (baseline-coloured uv coverage)
 # ===========================================================================
 
-def plot_uvwave(self, g_vis, name, mem_fraction=0.10,
-                cmap_name='twilight_shifted', chan_chunk=16):
+def plot_uvwave(self, g_vis, name, mem_fraction=0.10, cmap_name='twilight_shifted'):
     """
     u-wave vs v-wave [klambda] and u vs v [metres], coloured by baseline.
 
     Baseline colour uses _baseline_colormap (gist_rainbow by default).
-    The wavelength-scaled plot groups channels into *chan_chunk*-channel
-    chunks to represent bandwidth smearing, matching plotms avgchannel='16'.
-    SPWs with fewer channels than *chan_chunk*, or with a channel count that
-    is not a multiple of it, are handled per SPW (see _chunk_chan_freqs).
+    The wavelength-scaled plot groups channels into 16-channel chunks to
+    represent bandwidth smearing, matching plotms avgchannel='16'.
     No legend is shown (too many baselines); colour identity is by baseline.
     """
     try:
@@ -1437,14 +1391,13 @@ def plot_uvwave(self, g_vis, name, mem_fraction=0.10,
         g_a1  = ant1[good]
         g_a2  = ant2[good]
 
-        # Frequency chunks for wavelength-scaled plot.  Handles SPWs whose
-        # channel count is not a multiple of chan_chunk (or is smaller than
-        # it), as happens in non-homogeneous / combined-instrument MSes.
-        cf = _chunk_chan_freqs(dd_info[dd_id]['chan_freqs'], chan_chunk)
-        if cf.size == 0:
-            continue
-        n_c = cf.size
-        wl  = (_LIGHT_SPEED / cf).reshape(-1, 1)                   # (n_c, 1) m
+        # Frequency chunks for wavelength-scaled plot
+        freqs  = dd_info[dd_id]['chan_freqs']
+        cs     = 16
+        n_freq = len(freqs)
+        n_c    = max(1, n_freq // cs)
+        cf     = freqs[:n_c * cs].reshape(n_c, cs).mean(axis=1)   # (n_c,) Hz
+        wl     = (_LIGHT_SPEED / cf).reshape(-1, 1)                # (n_c, 1) m
 
         # Group rows by baseline using vectorised sort
         sort_ord, _, starts, cnts, _ = _bl_sort_index(g_a1, g_a2, n_ant)
@@ -1540,7 +1493,7 @@ def plot_uvwave(self, g_vis, name, mem_fraction=0.10,
 # ===========================================================================
 # Section 11 – plot_uv_coverage()   (multi-MS comparison)
 # ===========================================================================
-# Adapted directly from concat_pipeline.py, with the auto-sizing logic
+# Adapted directly from concat_vis.py, with the auto-sizing logic
 # from _auto_plot_params and the _plot_one inner function.
 
 def plot_uv_coverage(vis_list, concat_ms=None, output_dir='.',
@@ -1564,11 +1517,9 @@ def plot_uv_coverage(vis_list, concat_ms=None, output_dir='.',
     try:
         _tb   = tb      # noqa: F821
         _msmd = msmd    # noqa: F821
-        _ms   = ms      # noqa: F821
     except NameError:
         _tb   = _TB_STANDALONE
         _msmd = _MSMD_STANDALONE
-        _ms   = _MS_STANDALONE
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -1576,23 +1527,14 @@ def plot_uv_coverage(vis_list, concat_ms=None, output_dir='.',
     target_gb = mem_fraction * avail_gb
 
     def _auto_params(vis):
-        """
-        Estimate chunk_size and downsample_factor for one MS.
-
-        Rows are scaled by their own SPW's frequencies (see _plot_one), so
-        the budget is split as: ~_CHUNKS_PER_SPW frequency samples inside
-        each SPW - that alone sets the radial thickness of a track - and the
-        remaining points spent on rows, which is what makes the tracks
-        continuous rather than dashed.
-        """
+        """Estimate chunk_size and downsample_factor for one MS."""
         try:
             _tb.open(vis)
             n_rows = _tb.nrows()
             _tb.close()
             _msmd.open(vis)
-            nspw      = _msmd.nspw()
-            spw_freqs = [np.asarray(_msmd.chanfreqs(s), dtype=np.float64).ravel()
-                         for s in range(nspw)]
+            nspw   = _msmd.nspw()
+            n_freq = sum(len(_msmd.chanfreqs(s)) for s in range(nspw))
             _msmd.done()
         except Exception:
             try:
@@ -1605,12 +1547,14 @@ def plot_uv_coverage(vis_list, concat_ms=None, output_dir='.',
                 pass
             return 4, 150
 
-        nspw       = max(1, len(spw_freqs))
-        n_chan_typ = int(np.median([f.size for f in spw_freqs])) if spw_freqs else 1
-        cs         = max(1, int(np.ceil(max(1, n_chan_typ) / _CHUNKS_PER_SPW)))
-        n_chunks   = sum(max(1, int(np.ceil(f.size / cs))) for f in spw_freqs)
-        raw_points = n_chunks * 2 * (n_rows / nspw)
-        ds         = max(1, int(np.ceil(raw_points / _MAX_PLOT_POINTS)))
+        # Memory model: tile = n_chunks × 2×n_rows × 2 × 8 bytes
+        tile_budget = target_gb * 1e9 / 2.0
+        bpr         = 2 * 2 * 8
+        max_chunks  = max(1, int(tile_budget / (n_rows * bpr)))
+        cs          = max(1, int(np.ceil(n_freq / max_chunks)))
+        n_chunks    = max(1, n_freq // cs)
+        raw_points  = n_chunks * 2 * n_rows
+        ds          = max(1, int(np.ceil(raw_points / 2_000_000)))
         return cs, ds
 
     all_vis = ([concat_ms] if (concat_ms and os.path.exists(concat_ms)) else []) \
@@ -1637,88 +1581,54 @@ def plot_uv_coverage(vis_list, concat_ms=None, output_dir='.',
     fig, ax = plt.subplots(figsize=(8, 8))
 
     def _plot_one(vis, color, alpha=0.65):
-        """
-        Draw one MS.  Rows are read one DATA_DESC_ID at a time and scaled by
-        the frequencies of their own SPW, so mixed channel counts are handled
-        naturally and no row is tiled against a window it does not belong to.
-        """
         try:
-            dd_info = _spw_meta(vis, _tb, _msmd)
-            _tb.open(vis + '/ANTENNA')
-            n_ant = int(_tb.nrows())
+            _msmd.open(vis)
+            nspw      = _msmd.nspw()
+            all_freqs = np.concatenate([_msmd.chanfreqs(s) for s in range(nspw)])
+            _msmd.done()
+        except Exception:
+            try:
+                _msmd.done()
+            except Exception:
+                pass
+            return
+        try:
+            _tb.open(vis)
+            uvw  = _tb.getcol('UVW')
+            ant1 = _tb.getcol('ANTENNA1')
+            ant2 = _tb.getcol('ANTENNA2')
             _tb.close()
         except Exception:
-            for _closer in (lambda: _tb.close(), lambda: _msmd.done()):
-                try:
-                    _closer()
-                except Exception:
-                    pass
-            return
-        if not dd_info:
+            try:
+                _tb.close()
+            except Exception:
+                pass
             return
 
-        cs = max(1, auto_cs)
-        ds = max(1, auto_ds)
+        n_freq    = len(all_freqs)
+        cs        = max(1, auto_cs)
+        n_chunks  = max(1, n_freq // cs)
+        freq_used = all_freqs[:n_chunks * cs].reshape(n_chunks, cs)
+        chunk_frq = freq_used.mean(axis=1)
+        wavelens  = (_LIGHT_SPEED / chunk_frq).reshape(-1, 1)
 
-        # Per-SPW frequency chunks.  _chunk_chan_freqs copes with SPWs that
-        # are narrower than cs or whose n_chan is not a multiple of it.
-        wl_per_dd = {}
-        for dd_id, meta in dd_info.items():
-            cf = _chunk_chan_freqs(meta['chan_freqs'], cs)
-            if cf.size:
-                wl_per_dd[dd_id] = (_LIGHT_SPEED / cf).reshape(-1, 1)
-        if not wl_per_dd:
-            return
-
-        dd_ids = sorted(wl_per_dd.keys())
-        # UVW-only rows are light; cap the chunk so peak memory stays bounded
-        # regardless of MS size (the old code held the whole UVW column).
-        # The second cap bounds the tile itself: n_chunks x 2 rows x 2 axes x
-        # float64, which matters when a small chunk_size is passed by hand.
-        max_ch     = max(w.size for w in wl_per_dd.values())
-        tile_rows  = int(target_gb * 1e9 / max(1, max_ch * 2 * 2 * 8))
-        chunk_rows = min(500_000, max(10_000,
-                                      int(avail_gb * mem_fraction * 1e9
-                                          / (3 * 8))),
-                         max(10_000, tile_rows * ds))
-
-        for chunk in _iter_spw_chunks(vis, _ms, dd_ids, chunk_rows,
-                                       ['uvw', 'antenna1', 'antenna2']):
-            wl   = wl_per_dd[chunk['dd_id']]
-            uvw  = chunk['uvw']
-            ant1 = chunk['antenna1'].astype(np.int32)
-            ant2 = chunk['antenna2'].astype(np.int32)
-
-            cross = ant1 != ant2
-            if not cross.any():
-                continue
-            g_u, g_v = uvw[0, cross], uvw[1, cross]
-            g_a1, g_a2 = ant1[cross], ant2[cross]
-
-            # Group rows by baseline with an O(n log n) sort instead of the
-            # O(n_ant^2 x n_row) mask scan, then thin *rows* before tiling so
-            # the discarded points are never materialised.
-            sort_ord, _, starts, cnts, _ = _bl_sort_index(g_a1, g_a2, n_ant)
-            s_u, s_v = g_u[sort_ord], g_v[sort_ord]
-
-            u_parts, v_parts = [], []
-            for start, cnt in zip(starts, cnts):
-                u_bl = s_u[start:start + cnt:ds]
-                v_bl = s_v[start:start + cnt:ds]
-                if u_bl.size == 0:
+        ant_uniq = np.unique(np.concatenate([ant1, ant2]))
+        for a in ant_uniq:
+            for b in ant_uniq:
+                if b <= a:
                     continue
-                u_both = np.hstack([u_bl, -u_bl])
-                v_both = np.hstack([v_bl, -v_bl])
-                u_parts.append((np.tile(u_both, (wl.size, 1)) / wl / 1e3).ravel())
-                v_parts.append((np.tile(v_both, (wl.size, 1)) / wl / 1e3).ravel())
-
-            if not u_parts:
-                continue
-            # One Line2D per row-chunk: all baselines share this MS's colour,
-            # so there is nothing to gain from thousands of separate artists.
-            ax.plot(np.concatenate(u_parts), np.concatenate(v_parts),
-                    '.', markersize=0.2, color=color, alpha=alpha,
-                    linestyle='None', rasterized=True)
+                idx = np.where((ant1 == a) & (ant2 == b))[0]
+                if len(idx) == 0:
+                    continue
+                u = uvw[0, idx]
+                v = uvw[1, idx]
+                u_kl = (np.tile(np.hstack([u, -u]), (n_chunks, 1))
+                        / wavelens / 1e3)
+                v_kl = (np.tile(np.hstack([v, -v]), (n_chunks, 1))
+                        / wavelens / 1e3)
+                ax.plot(u_kl[:, ::auto_ds], v_kl[:, ::auto_ds],
+                        '.', markersize=0.2, color=color, alpha=alpha,
+                        rasterized=True)
 
     if concat_ms and os.path.exists(concat_ms):
         log.info("  Plotting concat MS (background): %s",

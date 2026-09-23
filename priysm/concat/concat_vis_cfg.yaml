@@ -1,0 +1,129 @@
+# concat_vis_cfg.yaml
+# =========================
+# Configuration file for concat_vis.py
+#
+# Place in the working directory and it is loaded automatically, or pass
+# an explicit path with:
+#
+#   python concat_vis.py --config /path/to/my_config.yaml
+#
+# KEY RULES
+# ---------
+# - Keys use underscores matching argparse dest names
+#   (e.g. CLI flag --do-phaseshift -> YAML key do_phaseshift).
+# - Keys omitted or set to null use the argparse default.
+# - CLI arguments ALWAYS override this file.
+#
+# DIRECTORY LAYOUT
+# ----------------
+# temp_dir   : intermediate MSs (split, chanavg, pshift, freqmatch).
+#              Use a fast local SSD here for speed.
+#              null  ->  parent directory of the first input MS.
+# output_dir : final products (concat MS, wtspectrum MS, UV plot, listobs).
+#              null  ->  parent directory of the first input MS.
+#
+# PIPELINE MODES
+# --------------
+# same  : same instrument / observing band; accumulates total bandwidth.
+#         A band-compatibility check aborts the run if MSs are clearly in
+#         different bands (configurable via band_guard_factor).
+# cross : different instruments (e.g. e-MERLIN + VLA).
+#         Frequency coverage is matched to the reference MS.
+#         Use with do_freq_match: true.
+
+
+# ---------------------------------------------------------------------------
+# Input data
+# ---------------------------------------------------------------------------
+
+# List of input Measurement Sets (space-separated on CLI or as YAML list here).
+# vis:
+#   - /data/epoch1.ms
+#   - /data/epoch2.ms
+#   - /data/epoch3.ms
+
+# Reference MS for phase shifting and frequency matching.
+# Must be one of the vis entries.  Default: first MS in vis.
+# ref_vis: /data/epoch1.ms
+
+# Human-readable source name used in the output concat MS filename.
+source_name: null  # null -> read FIELD name from reference MS
+
+
+# ---------------------------------------------------------------------------
+# Pipeline mode
+# ---------------------------------------------------------------------------
+# "same"  : same instrument / same observing band
+# "cross" : different instruments (requires do_freq_match: true)
+mode: same
+
+
+# ---------------------------------------------------------------------------
+# Directories
+# ---------------------------------------------------------------------------
+
+# Intermediate files (stages 1-4).
+# Tip: point to a fast local SSD to speed up I/O-bound stages.
+# null -> parent directory of the first input MS.
+temp_dir: null
+
+# Final products (concat MS, wtspectrum MS, UV plot, listobs).
+# null -> parent directory of the first input MS.
+output_dir: null
+
+
+# ---------------------------------------------------------------------------
+# Output control
+# ---------------------------------------------------------------------------
+
+force_overwrite:     false   # remove and reprocess existing outputs
+keep_intermediates:  false    # retain intermediate MSs after the run
+
+
+# ---------------------------------------------------------------------------
+# Stage switches
+# ---------------------------------------------------------------------------
+
+do_inspect:    true    # Stage 0: SPW tables + UV stats for each input MS
+do_split:      true    # Stage 1: fix observed SPW IDs, time-average
+do_chanavg:    false   # Stage 2: channel-average, create WEIGHT_SPECTRUM
+do_phaseshift: true    # Stage 3: shift all MSs to reference phase centre
+do_freq_match: false   # Stage 4: match freq coverage (needed for mode: cross)
+do_statwt:     true    # Stage 5: compute statwt scale factors
+do_concat:     true    # Stage 6: concatenate all prepared MSs
+do_wtspectrum: true    # Stage 7: embed WEIGHT_SPECTRUM in the concat MS
+plot_uv:       true    # Save a UV coverage comparison PNG
+
+
+# ---------------------------------------------------------------------------
+# Transform parameters
+# ---------------------------------------------------------------------------
+
+# Stage 1 - split
+timebin:     "6s"       # time averaging bin (CASA format)
+correlation: "RR,LL"    # correlation selection
+datacolumn:  data       # data | corrected | all
+
+# Stage 2 - channel average
+chan_out: 64            # target number of output channels per SPW
+
+# Stage 3 - phase shift
+# Override the reference phase centre.
+# Format: "J2000 HH:MM:SS.s +DD.MM.SS.s"
+# null -> read from the reference MS automatically.
+ref_phasecentre: null
+
+# Stage 4 - frequency matching
+freq_padding_mhz: 50.0   # padding (MHz) added on each side of each ref SPW
+
+# Stage 5 - statwt
+statwt_preview: true   # compute weights but do NOT write them back
+
+# Stage 6 - concat
+dirtol:  "1000.0arcsec"   # CASA concat direction tolerance
+freqtol: "1MHz"           # CASA concat frequency tolerance
+
+# Band guard (same-instrument mode only)
+# Minimum fractional overlap (0-1) for two MSs to be considered
+# the same band.  Pairs below this threshold abort the run.
+band_guard_factor: 0.5

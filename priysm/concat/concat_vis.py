@@ -23,7 +23,8 @@ differ in how spectral coverage is handled:
 Stages (each independently switchable)
 ---------------------------------------
   0. Inspect     Log SPW tables and UV stats for every input MS.  [--do-inspect]
-  1. Split-1     Fix SPW IDs; time-average only.                  [--do-split]
+  1. Split-1     Fix SPW IDs; optional time-average.              [--do-split]
+                 (time-average with --do-timeavg --timebin 6s)
   2. Split-2     Channel-average; create WEIGHT_SPECTRUM.          [--do-chanavg]
   3. Phaseshift  Shift all MSs to a common phase centre.           [--do-phaseshift]
   4. Freq-match  Match freq coverage to the reference MS.          [--do-freq-match]
@@ -545,16 +546,22 @@ def run_inspect(vis_list):
 # Stage 1: mstransform (fix SPW IDs, time average)
 # ===========================================================================
 
-def run_mstransform(vis_list, timebin="6s", correlation="RR,LL",
-                    datacolumn="data", force_overwrite=False, temp_dir=None):
+def run_mstransform(vis_list, timeaverage=True, timebin="6s",
+                    correlation="RR,LL", datacolumn="data",
+                    force_overwrite=False, temp_dir=None):
     """
     Stage 1: for each MS determine the truly observed SPW IDs via listobs,
-    then mstransform to those SPWs only with optional time-averaging.
+    then mstransform to those SPWs only, time-averaging to *timebin* when
+    *timeaverage* is True.
 
     Outputs go to *temp_dir*.
     Returns the new list of paths.
     """
     section("Stage 1 - mstransform  (fix SPW IDs, time average)")
+    if timeaverage:
+        log.info("  Time averaging ON  (timebin = %s)", timebin)
+    else:
+        log.info("  Time averaging OFF (native time resolution kept)")
     os.makedirs(temp_dir, exist_ok=True)
     out_list = []
 
@@ -573,8 +580,8 @@ def run_mstransform(vis_list, timebin="6s", correlation="RR,LL",
                 vis           = vis,
                 outputvis     = out,
                 spw           = spw_ids,
-                timeaverage   = False,
-                timebin       = timebin,
+                timeaverage   = timeaverage,
+                timebin       = timebin if timeaverage else "0s",
                 datacolumn    = datacolumn,
                 correlation   = correlation,
                 keepflags     = True,
@@ -1683,8 +1690,19 @@ def parse_args(argv=None):
 
     # Transform parameters
     xform = parser.add_argument_group("Transform parameters")
+    xform.add_argument("--do-timeavg", dest="do_timeavg",
+                       action="store_true", default=False,
+                       help=(
+                           "Time-average in Stage 1 to --timebin "
+                           "(default: off unless do_timeavg: true in the "
+                           "config).  Requires --do-split."
+                       ))
+    xform.add_argument("--no-timeavg", dest="do_timeavg",
+                       action="store_false",
+                       help="Disable Stage 1 time averaging (overrides config).")
     xform.add_argument("--timebin",     default="6s",
-                       help="Time averaging bin for Stage 1 (default: 6s).")
+                       help="Time averaging bin for Stage 1, used with "
+                            "--do-timeavg (default: 6s).")
     xform.add_argument("--correlation", default="RR,LL",
                        help="Correlation selection for Stage 1 (default: RR,LL).")
     xform.add_argument("--datacolumn",  default="data",
@@ -1730,7 +1748,7 @@ def parse_args(argv=None):
             "do_inspect", "do_split", "do_chanavg", "do_phaseshift",
             "do_freq_match", "do_statwt", "do_concat", "do_wtspectrum",
             "plot_uv", "force_overwrite", "force_concat", "keep_intermediates",
-            "statwt_preview",
+            "statwt_preview", "do_timeavg",
         }
         clean_cfg = {
             k: (True if k in bool_flags and v is True else v)
@@ -1756,6 +1774,10 @@ def parse_args(argv=None):
             "--do-inspect --do-split --do-chanavg --do-phaseshift "
             "--do-freq-match --do-statwt --do-concat --do-wtspectrum"
         )
+
+    if args.do_timeavg and not args.do_split:
+        log.warning("--do-timeavg has no effect without --do-split "
+                    "(time averaging happens in Stage 1).")
 
     if args.ref_vis and args.ref_vis not in args.vis:
         parser.error(
@@ -1802,6 +1824,8 @@ def main(argv=None):
     log.info("Stage switches:")
     log.info("  0 inspect    : %s", args.do_inspect)
     log.info("  1 split      : %s", args.do_split)
+    log.info("    timeavg    : %s%s", args.do_timeavg,
+             "  (timebin = %s)" % args.timebin if args.do_timeavg else "")
     log.info("  2 chanavg    : %s", args.do_chanavg)
     log.info("  3 phaseshift : %s", args.do_phaseshift)
     log.info("  4 freq-match : %s", args.do_freq_match)
@@ -1881,6 +1905,7 @@ def main(argv=None):
     if args.do_split:
         active_vis = run_mstransform(
             active_vis,
+            timeaverage    = args.do_timeavg,
             timebin        = args.timebin,
             correlation    = args.correlation,
             datacolumn     = args.datacolumn,

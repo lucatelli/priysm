@@ -85,7 +85,7 @@ keep_intermediates:  false    # retain intermediate MSs after the run
 # ---------------------------------------------------------------------------
 
 do_inspect:    true    # Stage 0: SPW tables + UV stats for each input MS
-do_split:      true    # Stage 1: fix observed SPW IDs, time-average
+do_split:      true    # Stage 1: fix observed SPW IDs (+ optional time-average)
 do_chanavg:    false   # Stage 2: channel-average, create WEIGHT_SPECTRUM
 do_phaseshift: true    # Stage 3: shift all MSs to reference phase centre
 do_freq_match: false   # Stage 4: match freq coverage (needed for mode: cross)
@@ -100,7 +100,8 @@ plot_uv:       true    # Save a UV coverage comparison PNG
 # ---------------------------------------------------------------------------
 
 # Stage 1 - split
-timebin:     "6s"       # time averaging bin (CASA format)
+do_timeavg:  true       # time-average in Stage 1 (CLI: --do-timeavg / --no-timeavg)
+timebin:     "6s"       # time averaging bin (CASA format), used if do_timeavg
 correlation: "RR,LL"    # correlation selection
 datacolumn:  data       # data | corrected | all
 

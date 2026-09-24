@@ -115,7 +115,7 @@ chan_out: 64            # target number of output channels per SPW
 ref_phasecentre: null
 
 # Stage 4 - frequency matching
-freq_padding_mhz: 50.0   # padding (MHz) added on each side of each ref SPW
+freq_padding_mhz: 10.0   # padding (MHz) added on each side of each ref SPW
 
 # Stage 5 - statwt
 statwt_preview: true   # compute weights but do NOT write them back

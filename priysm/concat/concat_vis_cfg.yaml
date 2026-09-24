@@ -100,7 +100,7 @@ plot_uv:       true    # Save a UV coverage comparison PNG
 # ---------------------------------------------------------------------------
 
 # Stage 1 - split
-do_timeavg:  true       # time-average in Stage 1 (CLI: --do-timeavg / --no-timeavg)
+do_timeavg:  false       # time-average in Stage 1 (CLI: --do-timeavg / --no-timeavg)
 timebin:     "6s"       # time averaging bin (CASA format), used if do_timeavg
 correlation: "RR,LL"    # correlation selection
 datacolumn:  data       # data | corrected | all

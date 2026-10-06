@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from wsclean_container import resolve_container, DEFAULT_CONTAINER
+import channel_division
 
 import resource
 soft, hard = resource.getrlimit(resource.RLIMIT_NPROC)
@@ -253,6 +254,20 @@ if __name__ == "__main__":
                         help="Number of channels division to be used in "
                              "the MFS deconvolution.")
 
+    parser.add_argument("--channel_division", type=str, nargs='?', default='auto',
+                        help="How the bandwidth is divided into --nc sub-bands. "
+                             "'auto': split frequencies computed from the MS "
+                             "(gaps + region where all instruments overlap; "
+                             "see channel_division.py). 'default': WSClean's "
+                             "own division. 'gap': -gap-channel-division. "
+                             "Anything else is passed as a comma-separated "
+                             "list of split frequencies in Hz to "
+                             "-channel-division-frequencies.")
+
+    parser.add_argument("--channel_division_mode", type=str, nargs='?', default='bandwidth',
+                        help="For --channel_division auto: split each frequency "
+                             "block into equal 'bandwidth' or equal 'weight'.")
+
     parser.add_argument("--negative_arg", type=str, nargs='?', default='negative',
                         help="Enable/disable negative clean components during cleaning.")
 
@@ -384,8 +399,6 @@ if __name__ == "__main__":
                             # '-store-imaging-weights -save-weights '
                             # '-no-negative -abs-threshold 3.5e-6 '
                             # Some testing parameters
-                            # '-channel-division-frequencies 4.0e9,4.5e9,5.0e9,5.5e9,'
-                            # '29e9,31e9,33e9,35e9 ' #-gap-channel-division
                             # '-save-weights -local-rms -local-rms-window 50 '
                             # '-beam-fitting-size 0.1 '
                             # ' -circular-beam -beam-size 0.1arcsec -beam-fitting-size = 0.7 ' 
@@ -462,6 +475,29 @@ if __name__ == "__main__":
                 ' '+uvselection+continue_clean+args.opt_args+' '
                 ' -log-time -field 0 ' + quiet + update_model_option + ' ')
     opt_args = opt_args + shift_options
+
+    # sub-band division for -channels-out
+    if args.deconvolution_mode == 'good' and nc > 1:
+        if args.channel_division == 'auto':
+            try:
+                division_args = channel_division.auto_division_args(
+                    args.f, nc, mode=args.channel_division_mode,
+                    spws=channel_division.parse_spws(opt_args),
+                    field=channel_division.parse_field(opt_args),
+                    csv_file=(root_dir_sys + base_name + '_' + g_name +
+                              '_nc' + str(nc) + '_channel_division.csv'))
+            except Exception as e:
+                print(' !! channel_division failed, using WSClean default '
+                      'division: ', e)
+                division_args = ' '
+        elif args.channel_division == 'gap':
+            division_args = ' -gap-channel-division '
+        elif args.channel_division in ('default', 'None', ''):
+            division_args = ' '
+        else:
+            division_args = (' -channel-division-frequencies ' +
+                             args.channel_division + ' ')
+        deconvolver_args = deconvolver_args + division_args
 
     for robust in robusts:
         for uvtaper in tapers:

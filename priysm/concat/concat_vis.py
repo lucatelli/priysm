@@ -1388,11 +1388,13 @@ def plot_uv_comparison(vis_list, concat_ms=None, output_dir=".",
 
     LIGHT_SPEED = 299792458.0
 
-    # Import the exact same helpers that plot_uvwave uses
+    # Import the exact same helpers that plot_uvwave uses, from the shared
+    # plotting module in ../plotting/
     try:
-        _here = os.path.dirname(os.path.abspath(__file__))
-        if _here not in sys.path:
-            sys.path.insert(0, _here)
+        _plotting_dir = os.path.normpath(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", "plotting"))
+        if _plotting_dir not in sys.path:
+            sys.path.insert(0, _plotting_dir)
         from plot_vis_python import _spw_meta, _iter_spw_chunks, _bl_sort_index
     except Exception as _pvp_err:
         log.error("  Cannot import helpers from plot_vis_python.py: %s", _pvp_err)

@@ -6,6 +6,8 @@ A collection of Python/casacore utilities for radio interferometric visibility o
 
 `priysm` grew out of the extension modules of the [`ph4ser`](https://github.com/) self-calibration pipeline, where common visibility-handling routines had started to accumulate. Since these tools are useful independently of `ph4ser` - often for manual, case-specific work on measurement sets - they are gathered here as a standalone repository.
 
+To use this repository, you need to create an environment. Please, follow the instruction in the `morphen` repository [`morphen`](https://github.com/lucatelli/morphen).
+
 The two main components are:
 
 - **`concat_vis`** - prepares several measurement sets (MSs) of the same target and concatenates them into one, either for a single instrument (several epochs or array configurations) or across instruments (e.g. e-MERLIN + VLA).

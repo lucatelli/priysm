@@ -166,6 +166,33 @@ Stage 4 works as follows:
 2. **Matched imaging:** for each statistic in `--beam-stat` (`mean`, `median`, `min` or `max` of the probe beams), all MSs are imaged with that circular beam at every `--robust` value. Two optional extra groups use other weightings: bands listed in `--bands-plus` are imaged at `--robust-plus`, and bands listed in `--bands-minus` at `--robust-minus`.
 3. **Sky taper (optional, `--apply-sky-taper`):** the `--bands-plus` group is imaged again with a uv taper equal to the largest probe beam.
 
+### uv-matched coverage plots
+
+With `--plot-vis`, Stage 2 saves `uv_matched/<group>/uvmatched_uv_coverage.png`, which overlays the uv coverage of all uv-matched MSs, one colour per MS. After matching, every MS fills the same annulus in the uv plane: the same outer radius (the smallest uvmax) and the same central hole (the largest uvmin). How densely each MS fills it still differs between arrays, configurations and bands, which is why Stage 4 also restores all images with a common beam. Three examples:
+
+<table>
+  <tr>
+    <td width="33%"><a href="examples/figures/uvmatched_uv_coverage_example_1.png"><img src="examples/figures/uvmatched_uv_coverage_example_1.png" alt="uv-matched coverage of seven VLA datasets of Arp220"></a></td>
+    <td width="33%"><a href="examples/figures/uvmatched_uv_coverage_example_2.png"><img src="examples/figures/uvmatched_uv_coverage_example_2.png" alt="uv-matched coverage of Arp220, VLA K and Ka plus e-MERLIN C"></a></td>
+    <td width="33%"><a href="examples/figures/uvmatched_uv_coverage_example_3.png"><img src="examples/figures/uvmatched_uv_coverage_example_3.png" alt="uv-matched coverage of Mrk231, VLA K and Ka plus e-MERLIN C"></a></td>
+  </tr>
+  <tr>
+    <td><b>1. VLA only, several bands.</b> Arp220: seven VLA datasets at C, K, Ka and Q band, from the A, B and C configurations, matched to a common range out to about 290 kλ.</td>
+    <td><b>2. VLA + e-MERLIN.</b> Arp220: VLA A-configuration K and Ka band with e-MERLIN C band, matched out to about 3000 kλ. The sparse e-MERLIN tracks reach the same radius as the dense VLA coverage.</td>
+    <td><b>3. VLA + e-MERLIN.</b> Mrk231: VLA A-configuration K and Ka band (several datasets) with e-MERLIN C band, matched out to about 2500 kλ.</td>
+  </tr>
+</table>
+
+**How the plots are made.** These uv plots (and the `--plot-uv` plot of `concat_vis`) are drawn by our own code with the CASA `ms` tool, NumPy and Matplotlib. It does not use plotms or any other plotting package. We wrote it because existing tools struggle with this kind of data. The approach:
+
+- **Reads little data.** Only the UVW, ANTENNA1/2 and FLAG_ROW columns are read, never the visibilities, so even large MSs are plotted quickly. Autocorrelations and flagged rows are skipped.
+- **Handles mixed datasets.** Each spectral window is read separately (`DATA_DESC_ID` by `DATA_DESC_ID`), so MSs whose SPWs have different numbers of channels, such as concatenated e-MERLIN + VLA data, are read correctly. SPWs left empty after uv matching are skipped instead of causing an error.
+- **Is accurate in wavelengths.** Each SPW's uv coordinates are converted to kλ at its own frequencies, in groups of 16 channels, so the radial spread across the bandwidth is drawn correctly for every array and band. Both (u, v) and (−u, −v) are plotted.
+- **Stays within memory.** Rows are read in chunks sized from the available RAM, and points are grouped by baseline with a sort rather than a loop over baselines.
+- **Renders headless.** Matplotlib draws with the non-interactive Agg backend (no display needed). Points are tiny and rasterized, so millions of them still give a compact PNG.
+
+The shared reading helpers live in [`priysm/plotting/plot_vis_python.py`](priysm/plotting/plot_vis_python.py), which can also be used on its own for diagnostic plots. More details: [`priysm/plotting/README.md`](priysm/plotting/README.md).
+
 ### Output layout
 
 With `--output-dir`:
@@ -243,7 +270,7 @@ The input MS is not modified, and it must have a WEIGHT_SPECTRUM column (the `*_
 
 ## Other tools
 
-- **Visibility plotting** (`plotting/`): quick, memory-safe diagnostic plots (uv coverage, amplitude vs uv distance or frequency, real vs imaginary, DATA/MODEL ratio) of one MS (`plot_vis_python.py`) or several on shared axes (`plot_vis_python_multi.py`).
+- **Visibility plotting** (`plotting/`): quick, memory-safe diagnostic plots (uv coverage, amplitude vs uv distance or frequency, real vs imaginary, DATA/MODEL ratio) of one MS (`plot_vis_python.py`) or several on shared axes (`plot_vis_python_multi.py`). See [`priysm/plotting/README.md`](priysm/plotting/README.md).
 - **WSClean helpers** (`wsclean_imaging/`): see [Imaging a concatenated MS with WSClean](#imaging-a-concatenated-ms-with-wsclean).
 - **MS repair** (`additional_modules/`): `fix_ms_intents.py` edits scan intents in place; `fix_ms_structure.py` merges observation IDs, renumbers scans and reindexes an MS (for compatibility with `auto_selfcal`).
 

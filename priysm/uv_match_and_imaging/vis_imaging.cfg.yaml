@@ -1,0 +1,160 @@
+# vis_imaging.cfg.yaml
+# ======================
+# Configuration file for vis_imaging.py
+#
+# Auto-loaded from the current working directory when running:
+#   python vis_imaging.py
+#
+# Or specify explicitly:
+#   python vis_imaging.py --config /path/to/my_config.yaml
+#
+# KEY RULES
+# ---------
+# - Keys use underscores (argparse dest names).
+# - Omitted or null values fall back to argparse defaults.
+# - CLI arguments ALWAYS override values here.
+#
+# CELL SIZE MODES (cell key)
+# --------------------------
+#   null / omit  -> compute analytically per MS (lambda/Bmax/5)
+#   "min"        -> compute per MS, use the minimum across all MSs
+#   "0.04arcsec" -> fixed value for all MSs
+
+
+# ---------------------------------------------------------------------------
+# Input data
+# ---------------------------------------------------------------------------
+
+# vis:
+#   - /data/A.ms
+#   - /data/B.ms
+
+# ref_vis: /data/ref.ms
+
+
+# ---------------------------------------------------------------------------
+# Pipeline stage switches
+# ---------------------------------------------------------------------------
+do_phaseshift: true
+do_uv_match: false
+do_native_imaging: false
+do_uv_matched_imaging: false
+
+# ---------------------------------------------------------------------------
+# Output control
+# ---------------------------------------------------------------------------
+output_dir: null
+force_overwrite: false
+plot_vis: true
+
+# ---------------------------------------------------------------------------
+# Imaging parameters (Stages 3 and 4 -- shared)
+# ---------------------------------------------------------------------------
+mlibs_path: null
+
+# Briggs robust values.  Used by Stage 3 as the only robust list, and by
+# Stage 4 as the main-group robust list (all MSs in the final imaging pass).
+robust:
+  # - -2.0
+  # - -1.0
+  # - -0.5
+  - -1.0
+  # - 0.0
+  # - 0.5
+  # - 1.0
+  # - 1.5
+  # - 2.0
+
+n_subimages: 3
+imsize: 2048
+# imsizey: 2048
+
+cell: null
+
+nsigma_automask: "4.0"
+nsigma_autothreshold: "2.0"
+
+uvtaper:
+  - ""
+
+niter: 500000
+with_multiscale: true
+scales: "None"
+opt_args: "' -circular-beam '"
+
+# Force a specific circular restoring beam in Stage 3 native imaging only.
+# e.g. "0.5arcsec".  null = wsclean chooses naturally.
+native_beam_size: null
+
+# UV taper(s) for Stage 3 native imaging only; overrides uvtaper for Stage 3 when set.
+# e.g. ["1.0arcsec"].  null = use uvtaper.
+native_uvtaper: null
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 -- UV-matched imaging specific parameters
+# ---------------------------------------------------------------------------
+
+# Robust used in the Pass 1 probe imaging to extract natural beam sizes (brute force).
+robust_probe: -1.0
+
+# Additional robust values for the wt_plus band group.
+# High-frequency MSs (short native beam) that benefit from more weight on
+# short baselines to match sensitivity at lower frequencies.
+robust_plus:
+  # - 1.0
+  - 1.5
+  # - 2.0
+
+# Additional robust values for the wt_minus band group.
+# Low-frequency MSs (long native beam) that benefit from more weight on
+# long baselines to recover finer structure.
+robust_minus:
+  # - 0.0
+  # - -0.5
+  - -1.0
+  # - -2.0
+
+# Band letters assigned to the wt_plus group (e.g. X, Ka).
+# Membership is determined by reading the OBSERVATION table and SPW
+# frequencies from each MS -- no hardcoding of paths needed.
+# Example:
+#   bands_plus:
+#     - X
+#     - Ka
+# bands_plus: []
+bands_plus:
+  # - Ka
+  # - C
+  # - Q
+  # - K
+
+# Band letters assigned to the wt_minus group (e.g. L, S, Ku for VLA-C).
+# Note: VLA-C Ku band belongs here even though its frequency is high,
+# because its synthesised beam is large relative to the UV-matched set.
+# Example:
+#   bands_minus:
+#     - L
+#     - S
+# bands_minus: []
+bands_minus:
+  # - X
+  # - L
+  # - Ku
+  # - S
+  # - C
+  # - Q
+
+# Force a specific beam in Stage 4 UV-matched imaging, skipping the probe.
+# e.g. "0.85arcsec".  null = probe is run and beam_stat selects the value.
+matched_beam_size: null
+
+# Statistic(s) used to select the common restoring beam from the probe beam sizes.
+# Options: mean, median, min, max  -- one or more values; Pass 2 runs once per entry.
+# Single value:  beam_stat: max
+# Multiple:      beam_stat: [median, max]
+beam_stat: [max]
+
+# Apply the maximum probe beam size as a UV taper in Pass 2 to additionally
+# smooth all images to the same angular resolution.
+apply_sky_taper: false

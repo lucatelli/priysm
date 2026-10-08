@@ -51,7 +51,7 @@ priysm/
 
 - **Opt-in stages.** Each stage is enabled with its own `--do-*` switch. The pipeline keeps a list of "active" MSs, and every stage that runs replaces it with its outputs, so later stages always work on the most-processed data.
 - **Configuration.** Settings come from, in increasing priority: the built-in defaults, a YAML config and the command line. Use `--config file.yaml`; without it, the default config file (`concat_vis_cfg.yaml` or `vis_imaging.cfg.yaml`) is loaded from the **current working directory** if it exists. YAML keys are the option names with underscores (`--do-phaseshift` becomes `do_phaseshift`). The shipped YAML files differ from the built-in defaults in several places, so when you run next to them, the YAML values are the effective defaults.
-- **Boolean options in the YAML.** Setting an option to `true` in the YAML turns it on. It can then only be turned off from the command line if a `--no-*` flag exists (for example `--no-timeavg`); otherwise edit the YAML.
+- **Boolean options in the YAML.** Setting an option to `true` in the YAML turns it on. It can then only be turned off from the command line if a `--no-*` flag exists. In `concat_vis`, every stage has one (e.g. `--no-statwt`, `--no-plot-uv`), as does `--no-timeavg`; for other options, edit the YAML.
 - **Existing outputs are reused.** An output MS that already exists is skipped, not rebuilt. Pass `--force-overwrite` after changing a parameter such as `--timebin`, or the old intermediates are used.
 
 ## `concat_vis`: concatenation pipeline
@@ -64,7 +64,7 @@ Location: `priysm/concat/concat_vis.py`. Full documentation: [`priysm/concat/REA
 
 #### Single instrument: `--mode same`
 
-Use this mode for several observations of the same target with the **same array**: multiple epochs, different configurations (e.g. VLA A + C) or adjacent sub-bands. Each MS keeps its full bandwidth; frequencies are not matched. As a safety check, the run stops if an MS overlaps the first `--vis` input by less than `--band-guard-factor` (default 0.5) of its bandwidth, which catches mixing of different bands by mistake. Use `--force-concat` to skip this check when the inputs really are different parts of one receiver band, e.g. C-low (4–6 GHz) and C-high (6–8 GHz).
+Use this mode for several observations of the same target with the **same array**: multiple epochs, different configurations (e.g. VLA A + C) or adjacent sub-bands. Each MS keeps its full bandwidth; frequencies are not matched. As a safety check, the run stops if an MS overlaps the first `--vis` input by less than `--band-guard-factor` (default 0.5) of its bandwidth, which catches mixing of different bands by mistake. Use `--force-concat` to skip this check when the inputs really are different parts of one receiver band, e.g. C-low (4-6 GHz) and C-high (6-8 GHz).
 
 Example: three VLA A-configuration C-band epochs of one target.
 
@@ -82,7 +82,7 @@ python concat_vis.py \
 
 #### Different arrays: `--mode cross`
 
-Use this mode to combine observations from **different arrays whose frequency coverage only partly overlaps**, such as e-MERLIN and the VLA. At C band, e-MERLIN observes a lower and an upper sub-band with a gap between them (about 1 GHz in total), while the VLA covers 4–8 GHz continuously. Concatenating them as they are would give an MS in which e-MERLIN's long baselines exist only in part of the band: the uv coverage, and therefore the resolution and PSF, would change sharply with frequency, which biases multi-frequency imaging and spectral fits.
+Use this mode to combine observations from **different arrays whose frequency coverage only partly overlaps**, such as e-MERLIN and the VLA. At C band, e-MERLIN observes a lower and an upper sub-band with a gap between them (about 1 GHz in total), while the VLA covers 4-8 GHz continuously. Concatenating them as they are would give an MS in which e-MERLIN's long baselines exist only in part of the band: the uv coverage, and therefore the resolution and PSF, would change sharply with frequency, which biases multi-frequency imaging and spectral fits.
 
 With `--do-freq-match`, every MS other than the reference is cut to the reference's frequency coverage, channel by channel. A channel is kept when it falls inside any reference SPW widened by `--freq-padding-mhz` on each side; gaps between reference SPWs stay gaps (such as the gap between the e-MERLIN sub-bands), and SPWs with no overlap are dropped. The reference MS is not changed. The result is an MS in which both arrays cover the same frequencies, which is what imaging the combined data needs.
 
@@ -112,7 +112,7 @@ python concat_vis.py \
 
 | # | Switch | What it does | Output |
 | --- | --- | --- | --- |
-| 0 | `--do-inspect` | Logs the SPW table and uv statistics (kλ) of each input | log only |
+| 0 | `--do-inspect` | Logs the SPW table and uv statistics ($\mathrm{k}\lambda$) of each input | log only |
 | 1 | `--do-split` | Keeps only the SPWs that were actually observed and the chosen correlations (`--correlation`, default `RR,LL`). Time-averages to `--timebin` when `--do-timeavg` is set | `*_split.ms` |
 | 2 | `--do-chanavg` | Channel-averages to about `--chan-out` channels per SPW and creates WEIGHT_SPECTRUM | `*_chanavg.ms` |
 | 3 | `--do-phaseshift` | Shifts every MS except the reference to the reference phase centre (`--ref-vis`, or `--ref-phasecentre`) | `*_pshift.ms` |
@@ -123,6 +123,31 @@ python concat_vis.py \
 | - | `--plot-uv` | Overlays the uv coverage of the MSs that went into `concat`, one colour per MS | `<stem>_uv_coverage_total.png` |
 
 Some POINTING subtables, typically left behind by an earlier `concat`, list rows that cannot be read, and `concat` then fails. Before Stage 6 the pipeline replaces such a table with an empty one of the same layout and saves the original in `<output_dir>/damaged_subtables/`. `--no-repair-pointing` turns this off.
+
+### Equal weights for every input (`--do-statwt`)
+
+Each MS arrives with its own weight scale: weights depend on the array, the receivers, the correlator setup, the integration and channel widths, and on how the data were calibrated. Concatenated as they are, the MS with the highest weights dominates the combined data, and the uv coverage contributed by the others may not be significant during deconvolution.
+
+`--do-statwt` (Stage 5) puts all inputs on one scale before they are combined:
+
+1. `statwt` measures, for each MS $i$, the mean weight per visibility, $\bar{w}_i$, from the scatter of the data (12 s bins, Chauvenet rejection).
+2. The target is the mean of those values, $\langle w \rangle$.
+3. Each MS gets one scale factor, $f_i = \langle w \rangle / \bar{w}_i$: high-weight MSs are scaled down and low-weight MSs up.
+4. Stage 6 passes the factors to CASA `concat` (`visweightscale`), which multiplies the weights of each MS by its factor while concatenating.
+
+![How --do-statwt balances the weights of the inputs before concatenation](examples/figures/statwt_weights.gif)
+
+*Illustrative values. Static version: [`examples/figures/statwt_weights.png`](examples/figures/statwt_weights.png); made by [`make_statwt_figure.py`](examples/figures/make_statwt_figure.py).*
+
+After this step, a visibility from any epoch, configuration or array carries, on average, the same weight. The combined uv coverage is then used as a whole: short baselines from compact configurations and long baselines from extended ones or from another array all constrain the deconvolution, which gives the best chance of recovering the source structure on every scale.
+
+Things to keep in mind:
+
+- **Equal per visibility, not per MS.** An MS with more visibilities (a longer observation, more antennas or channels) still contributes more in total.
+- **It is a trade-off.** Equal weights favour structure recovery over the lowest possible noise; noise-based (inverse-variance) weighting would let the most sensitive data dominate.
+- **Preview mode is intentional.** `statwt` runs in preview mode so that the weights of the input data are never modified: it only measures $\bar{w}_i$, and `concat` applies the factors to the weights already stored, in the concatenated copy. The balance is therefore exact only when the stored weights are on the same scale as the `statwt` estimate. How large the remaining differences are for real data, and how they affect each MS at the visibility level, has not been investigated in detail yet.
+- **Not for one observation split into pieces.** When re-joining the SPWs of a single observation, the weights are already consistent, so use `--no-statwt` (or leave it out).
+- **Separate from the imaging weights.** `channel_division.py --balance-weights` (see [Imaging a concatenated MS with WSClean](#imaging-a-concatenated-ms-with-wsclean)) balances the arrays per frequency bin at imaging time; `--do-statwt` sets one factor per input MS at concatenation time.
 
 ### Inputs and outputs
 
@@ -156,7 +181,7 @@ Takes MSs of one target, possibly from several instruments and bands, and produc
 | # | Switch | What it does | Output |
 | --- | --- | --- | --- |
 | 1 | `--do-phaseshift` | Shifts **all** MSs, the reference included, to the phase centre of `--ref-vis` or to `--ref-phasecentre` (`--ref-vis` wins if both are given) | `native/<name>_ps.ms` |
-| 2 | `--do-uv-match` | Finds the uv range common to all MSs (largest uvmin to smallest uvmax, in kλ) and splits each MS to it. Logs the fraction of rows kept. `--plot-vis` saves an overlay of the matched uv coverage | `uv_matched/<group>/<name>_uvmatch.ms` |
+| 2 | `--do-uv-match` | Finds the uv range common to all MSs (largest uvmin to smallest uvmax, in $\mathrm{k}\lambda$) and splits each MS to it. Logs the fraction of rows kept. `--plot-vis` saves an overlay of the matched uv coverage | `uv_matched/<group>/<name>_uvmatch.ms` |
 | 3 | `--do-native-imaging` | Images each MS at every `--robust` value. The cell size is fixed (`--cell 0.04arcsec`), the smallest over all MSs (`min`), or computed per MS. `--native-beam-size` and `--native-uvtaper` apply to this stage only | images in `native/` |
 | 4 | `--do-uv-matched-imaging` | Images the uv-matched MSs with a common circular beam, in up to three passes (see below) | images in `uv_matched/<group>/` |
 
@@ -177,9 +202,9 @@ With `--plot-vis`, Stage 2 saves `uv_matched/<group>/uvmatched_uv_coverage.png`,
     <td width="33%"><a href="examples/figures/uvmatched_uv_coverage_example_3.png"><img src="examples/figures/uvmatched_uv_coverage_example_3.png" alt="uv-matched coverage of Mrk231, VLA K and Ka plus e-MERLIN C"></a></td>
   </tr>
   <tr>
-    <td><b>1. VLA only, several bands.</b> Arp220: seven VLA datasets at C, K, Ka and Q band, from the A, B and C configurations, matched to a common range out to about 290 kλ.</td>
-    <td><b>2. VLA + e-MERLIN.</b> Arp220: VLA A-configuration K and Ka band with e-MERLIN C band, matched out to about 3000 kλ. The sparse e-MERLIN tracks reach the same radius as the dense VLA coverage.</td>
-    <td><b>3. VLA + e-MERLIN.</b> Mrk231: VLA A-configuration K and Ka band (several datasets) with e-MERLIN C band, matched out to about 2500 kλ.</td>
+    <td><b>1. VLA only, several bands.</b> Arp220: seven VLA datasets at C, K, Ka and Q band, from the A, B and C configurations, matched to a common range out to about 290 k&lambda;.</td>
+    <td><b>2. VLA + e-MERLIN.</b> Arp220: VLA A-configuration K and Ka band with e-MERLIN C band, matched out to about 3000 k&lambda;. The sparse e-MERLIN tracks reach the same radius as the dense VLA coverage.</td>
+    <td><b>3. VLA + e-MERLIN.</b> Mrk231: VLA A-configuration K and Ka band (several datasets) with e-MERLIN C band, matched out to about 2500 k&lambda;.</td>
   </tr>
 </table>
 
@@ -187,7 +212,7 @@ With `--plot-vis`, Stage 2 saves `uv_matched/<group>/uvmatched_uv_coverage.png`,
 
 - **Reads little data.** Only the UVW, ANTENNA1/2 and FLAG_ROW columns are read, never the visibilities, so even large MSs are plotted quickly. Autocorrelations and flagged rows are skipped.
 - **Handles mixed datasets.** Each spectral window is read separately (`DATA_DESC_ID` by `DATA_DESC_ID`), so MSs whose SPWs have different numbers of channels, such as concatenated e-MERLIN + VLA data, are read correctly. SPWs left empty after uv matching are skipped instead of causing an error.
-- **Is accurate in wavelengths.** Each SPW's uv coordinates are converted to kλ at its own frequencies, in groups of 16 channels, so the radial spread across the bandwidth is drawn correctly for every array and band. Both (u, v) and (−u, −v) are plotted.
+- **Is accurate in wavelengths.** Each SPW's uv coordinates are converted to $\mathrm{k}\lambda$ at its own frequencies, in groups of 16 channels, so the radial spread across the bandwidth is drawn correctly for every array and band. Both (u, v) and $(-u, -v)$ are plotted.
 - **Stays within memory.** Rows are read in chunks sized from the available RAM, and points are grouped by baseline with a sort rather than a loop over baselines.
 - **Renders headless.** Matplotlib draws with the non-interactive Agg backend (no display needed). Points are tiny and rasterized, so millions of them still give a compact PNG.
 
@@ -286,4 +311,4 @@ This repository is under active development. A detailed record of the current st
 
 ## Author
 
-Geferson Lucatelli - Instituto de Astrofísica de Andalucía (IAA-CSIC), Granada, Spain.
+Geferson Lucatelli - Instituto de Astrof&iacute;sica de Andaluc&iacute;a (IAA-CSIC), Granada, Spain.

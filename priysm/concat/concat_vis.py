@@ -1690,6 +1690,25 @@ def parse_args(argv=None):
     stages.add_argument("--plot-uv",       action="store_true", default=False,
                         help="Save UV coverage comparison PNG.")
 
+    # --no-* counterparts: switch off a stage that the YAML config turns on
+    off = parser.add_argument_group(
+        "Stage switches (off)",
+        "Disable a stage that is enabled in the config file, e.g. "
+        "--no-statwt when the config has do_statwt: true.")
+    for flag, dest in (("--no-inspect",    "do_inspect"),
+                       ("--no-split",      "do_split"),
+                       ("--no-chanavg",    "do_chanavg"),
+                       ("--no-phaseshift", "do_phaseshift"),
+                       ("--no-freq-match", "do_freq_match"),
+                       ("--no-statwt",     "do_statwt"),
+                       ("--no-concat",     "do_concat"),
+                       ("--no-wtspectrum", "do_wtspectrum"),
+                       ("--no-plot-uv",    "plot_uv")):
+        off.add_argument(flag, dest=dest, action="store_false",
+                         help="Disable {} (overrides config).".format(
+                             "--" + dest.replace("_", "-")
+                             if dest != "plot_uv" else "--plot-uv"))
+
     # Transform parameters
     xform = parser.add_argument_group("Transform parameters")
     xform.add_argument("--do-timeavg", dest="do_timeavg",

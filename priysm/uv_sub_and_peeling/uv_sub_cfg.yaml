@@ -1,0 +1,169 @@
+# uv_sub_cfg.yaml
+# ===============
+# Configuration file for uv_sub.py
+#
+# Auto-loaded from the current working directory when running:
+#   python uv_sub.py
+#
+# Or specify explicitly:
+#   python uv_sub.py --config /path/to/my_config.yaml
+#
+# KEY RULES
+# ---------
+# - Keys use underscores (argparse dest names).
+# - Omitted or null values fall back to argparse defaults.
+# - CLI arguments ALWAYS override values here; booleans can be switched off
+#   on the command line with --no-<flag> (e.g. --no-do-subtract).
+
+
+# ---------------------------------------------------------------------------
+# Input and output
+# ---------------------------------------------------------------------------
+
+# vis: /data/target.ms
+
+# Default: <vis stem>_uvsub_out next to the MS.  The result is written to
+# <output_dir>/<vis stem>_uvsub.ms; the input MS is never modified.
+output_dir: null
+
+# Directory that contains mlibs.py (morphen/morphen/).
+mlibs_path: null
+
+# Column of the input MS to work on: data | corrected
+datacolumn: data
+
+force_overwrite: false
+keep_tmp: false
+
+
+# ---------------------------------------------------------------------------
+# Stage switches
+# ---------------------------------------------------------------------------
+do_detect: true        # wide-field image + source detection
+do_subtract: true      # image and subtract each group
+do_final_image: true   # image the result, before/after figure and table
+do_target_image: true  # small image of the target before and after
+
+# Stop after detection and grouping (catalogue, regions and overlay only).
+dry_run: false
+
+# Number of detect -> subtract cycles.
+n_cycles: 1
+
+
+# ---------------------------------------------------------------------------
+# Sources to keep and to subtract
+# ---------------------------------------------------------------------------
+
+# Science target.  null = phase centre of the MS.
+# target: "J2000 09:15:55.5 +44.19.58.0"
+target: null
+
+# Other positions that must not be subtracted.
+# keep:
+#   - "J2000 09:15:29.588 +44.16.44.748"
+
+# Radius [arcsec] around the target and every `keep` position.  Detected
+# sources inside it are not subtracted, and no sub-image may overlap it.
+exclusion_radius: 50.0
+
+# Positions to subtract in addition to the detected ones.  With
+# do_detect: false only these are subtracted (the manual recipe); that
+# needs method: phaseshift or shift.
+# sources:
+#   - "J2000 09:14:57.207 +44.33.09.462"
+
+
+# ---------------------------------------------------------------------------
+# Detection image (Stages 1 and 4)
+# ---------------------------------------------------------------------------
+detect_pix_per_beam: 3.0     # cell = (lambda / Bmax) / 3
+detect_max_imsize: 10240     # above this the cell is coarsened + uv-taper
+fov_pb_factor: 1.5           # field of view = 2 x primary beam FWHM
+fov_arcmin: null             # fixed field of view; overrides fov_pb_factor
+
+# Detection threshold in units of the MAD rms of the residual image.
+# One value per cycle; the last one is reused for later cycles.
+detect_nsigma:
+  - 15.0
+
+# Level at which the extent of each detected source is measured.
+detect_extent_nsigma: 5.0
+
+detect_robust: 0.75
+detect_niter: 50000
+detect_nsigma_automask: "4.0"
+detect_nsigma_autothreshold: "2.0"
+detect_multiscale: false
+
+
+# ---------------------------------------------------------------------------
+# Target image (do_target_image)
+# ---------------------------------------------------------------------------
+# Small image centred on `target` (or the phase centre), made with the same
+# settings before and after the subtraction.  It shows how much the outlier
+# sources affect the target when it is imaged with a small field.
+target_imsize: 2048
+target_pix_per_beam: 5.0     # cell = (lambda / Bmax) / 5
+target_robust: 0.75
+target_niter: 100000
+target_nsigma_automask: "4.0"
+target_nsigma_autothreshold: "2.0"
+target_multiscale: true
+
+
+# ---------------------------------------------------------------------------
+# Sub-images and subtraction (Stage 3)
+# ---------------------------------------------------------------------------
+
+# phaseshift : phaseshift to each group, image at the phase centre, uvsub.
+# shift      : one working MS, WSClean -shift per group, uvsub accumulates.
+# model      : one deep wide-field clean (target included) inside a mask of
+#              the detected sources; the model of the protected regions is
+#              zeroed, the rest is predicted and removed with one uvsub.
+#              Default.  Best when the target is bright.  Needs
+#              do_detect: true.
+method: model
+
+# phaseshift / shift only: a warning is logged when the model of a sub-image
+# looks contaminated by a bright source outside it (usually the target).
+sub_model_flux_warn: 2.0     # model flux > 2 x catalogued flux of the group
+sub_model_neg_warn: 0.2      # negative model flux > 20% of the positive one
+
+# uvsub | peel (peel is a placeholder, not implemented yet)
+subtract_mode: uvsub
+
+sub_pix_per_beam: 5.0        # cell = (lambda / Bmax) / 5
+max_subimage: 1024           # nearby sources share a sub-image up to this size
+min_subimage: 256
+subimage_pad_beams: 10.0     # margin around the sources of a group [beams]
+
+sub_robust: 0.75
+sub_niter: 100000
+sub_nsigma_automask: "4.0"
+sub_nsigma_autothreshold: "2.0"
+sub_multiscale: true
+
+
+# ---------------------------------------------------------------------------
+# Wide-field model (method: model)
+# ---------------------------------------------------------------------------
+# Deep clean on the detection-image grid.  Everything in this model outside
+# `exclusion_radius` of the target / `keep` positions is subtracted, so the
+# radius must cover the whole target.
+model_robust: 0.75
+model_niter: 200000
+model_nsigma_automask: "4.0"
+model_nsigma_autothreshold: "2.0"
+model_multiscale: true
+model_mask_dilate_beams: 2.0   # growth of the detected islands in the mask
+
+
+# ---------------------------------------------------------------------------
+# WSClean (all stages)
+# ---------------------------------------------------------------------------
+n_subimages: 4               # -channels-out
+
+# Extra WSClean arguments, shell quoted.  Do NOT add -apply-primary-beam:
+# detection and subtraction must use the apparent (uncorrected) sky.
+opt_args: "''"
